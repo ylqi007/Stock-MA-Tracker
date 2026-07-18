@@ -32,6 +32,11 @@ The system will only generate notifications. It will not automatically place tra
 * Chronological sorting of stored price bars
 * Unit tests with pytest
 * Code quality checks with Ruff
+* Incremental market data synchronization
+* Seven-day overlap reconciliation
+* Duplicate-date replacement
+* Configurable historical-data retention
+* CLI-based market data synchronization
 
 ## Planned Features
 
@@ -69,6 +74,7 @@ Stock-MA-Tracker/
 │           ├── models.py
 │           ├── provider.py
 │           ├── repository.py
+│           ├── sync.py
 │           └── yahoo.py
 ├── tests/
 │   └── unit/
@@ -285,6 +291,10 @@ still writes to:
 
 ```text
 data/QQQ.csv
+```
+
+```bash
+stock-ma-tracker sync-data
 ```
 
 ## Development
