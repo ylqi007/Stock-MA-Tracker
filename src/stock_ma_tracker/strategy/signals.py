@@ -1,6 +1,11 @@
 from __future__ import annotations
 
+import math
 from enum import Enum
+
+
+class InvalidSignalInputError(ValueError):
+    """Raised when signal input values are not valid."""
 
 
 class PricePosition(str, Enum):
@@ -15,11 +20,29 @@ class CrossSignal(str, Enum):
     NONE = "none"
 
 
+def _validate_signal_value(
+    value: float,
+    name: str,
+) -> None:
+    """Validate that a signal input is a finite numeric value."""
+    if not math.isfinite(value):
+        raise InvalidSignalInputError(
+            f"{name} must be a finite number",
+        )
+
+
 def determine_price_position(
     price: float,
     moving_average: float,
 ) -> PricePosition:
-    """Determine whether a price is above, below, or equal to a moving average."""
+    """Determine whether a price is above, below, or equal to a moving average.
+
+    Raises:
+        InvalidSignalInputError: If either input is not a finite number.
+    """
+    _validate_signal_value(price, "price")
+    _validate_signal_value(moving_average, "moving_average")
+
     if price > moving_average:
         return PricePosition.ABOVE
 
