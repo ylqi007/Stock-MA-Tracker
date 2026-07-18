@@ -13,16 +13,6 @@ def test_check_command(monkeypatch, capsys):
     assert "configured correctly" in captured.out
 
 
-def test_test_command(monkeypatch, capsys):
-    monkeypatch.setattr("sys.argv", ["stock-ma-tracker", "test"])
-
-    exit_code = main()
-    captured = capsys.readouterr()
-
-    assert exit_code == 0
-    assert "Just a test parser" in captured.out
-
-
 def test_version(monkeypatch, capsys):
     monkeypatch.setattr("sys.argv", ["stock-ma-tracker", "--version"])
 
@@ -33,3 +23,22 @@ def test_version(monkeypatch, capsys):
 
     captured = capsys.readouterr()
     assert "0.1.0" in captured.out
+
+
+def test_validate_config_command(monkeypatch, capsys):
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "stock-ma-tracker",
+            "validate-config",
+            "--config",
+            "config/strategy.yaml",
+        ],
+    )
+
+    exit_code = main()
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "Configuration is valid" in captured.out
+    assert "QQQ SMA200" in captured.out

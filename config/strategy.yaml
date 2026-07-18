@@ -1,0 +1,33 @@
+project:
+  name: stock-ma-tracker
+  version: "0.1.0"
+
+market_data:
+  provider: yahoo
+  signal_symbol: QQQ
+  trade_symbol: TQQQ
+  interval: 1d
+  auto_adjust: true
+  overlap_calendar_days: 7
+  max_stored_rows: 400
+
+strategy:
+  name: sma_buffer
+  version: 1
+  sma_window: 200
+  risk_on_multiplier: 1.04
+  risk_off_multiplier: 0.97
+  threshold_inclusive: true
+  neutral_behavior: keep_previous
+  initial_state: UNKNOWN
+
+notification:
+  provider: telegram
+  mode: signal_only
+  include_chart: true
+
+storage:
+  data_directory: data
+  state_directory: state
+  history_directory: history
+  chart_directory: charts
