@@ -325,7 +325,7 @@ pytest tests/unit/test_csv_market_data_repository.py -v
 * [x] Add the Yahoo Finance provider
 * [x] Add the market-data repository interface
 * [x] Add CSV market-data persistence
-* [ ] Add incremental market-data synchronization
+* [x] Add incremental market-data synchronization
 * [ ] Add duplicate-date reconciliation
 * [ ] Add historical-data retention
 * [ ] Add SMA calculations
