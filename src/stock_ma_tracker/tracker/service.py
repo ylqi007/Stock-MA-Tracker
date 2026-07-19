@@ -85,6 +85,12 @@ class TrackerService:
                 f"failed to analyze {normalized_symbol}: {error}",
             ) from error
 
+    def track_many(
+        self,
+        symbols: list[str],
+    ) -> list[MovingAverageAnalysis]:
+        return [self.track(symbol) for symbol in symbols]
+
     @staticmethod
     def _extract_close_prices(
         symbol: str,

@@ -9,6 +9,7 @@ from datetime import date, timedelta
 from pathlib import Path
 
 from stock_ma_tracker import __version__
+from stock_ma_tracker.analysis import MovingAverageAnalysis
 from stock_ma_tracker.application import create_tracker_service
 from stock_ma_tracker.config import (
     ConfigurationError,
@@ -81,6 +82,11 @@ def build_parser() -> argparse.ArgumentParser:
     track_parser.add_argument(
         "symbol",
         help="Ticker symbol to track, for example QQQ.",
+    )
+
+    subparsers.add_parser(
+        "run",
+        help="Track the configured signal symbol.",
     )
 
     return parser
@@ -180,6 +186,44 @@ def _handle_track(
     return 0
 
 
+def _handle_run(
+    args: argparse.Namespace,
+) -> int:
+    try:
+        config = load_config(args.config)
+        tracker = create_tracker_service(config)
+
+        results = tracker.track_many(
+            [config.market_data.signal_symbol],
+        )
+    except (ConfigurationError, TrackerError) as error:
+        print(
+            f"Error: {error}",
+            file=sys.stderr,
+        )
+        return 1
+
+    for index, result in enumerate(results):
+        if index > 0:
+            print()
+
+        _print_analysis(result)
+
+    return 0
+
+
+def _print_analysis(
+    result: MovingAverageAnalysis,
+) -> None:
+    print(f"Symbol: {result.symbol}")
+    print(f"Date: {result.date.isoformat()}")
+    print(f"Close: {result.close:.2f}")
+    print(f"SMA{result.window}: {result.moving_average:.2f}")
+    print(f"Position: {result.position.value}")
+    print(f"Cross signal: {result.cross_signal.value}")
+    print(f"Distance: {result.distance_percentage:+.2f}%")
+
+
 def main(
     argv: Sequence[str] | None = None,
 ) -> int:
@@ -188,6 +232,9 @@ def main(
 
     if args.command == "track":
         return _handle_track(args)
+
+    if args.command == "run":
+        return _handle_run(args)
 
     try:
         config = load_config(args.config)
