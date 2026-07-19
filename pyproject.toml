@@ -7,10 +7,9 @@ name = "stock-ma-tracker"
 version = "0.1.0"
 description = "A configurable stock moving-average strategy tracker and notifier."
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.12"
 dependencies = [
     "pandas",
-    "yfinance",
     "PyYAML>=6.0",
     "matplotlib",
     "requests",
@@ -37,7 +36,7 @@ addopts = "-ra"
 
 [tool.ruff]
 line-length = 100
-target-version = "py39"
+target-version = "py312"
 
 [tool.ruff.lint]
 select = [
