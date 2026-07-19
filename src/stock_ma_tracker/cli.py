@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import argparse
+import sys
 from collections.abc import Sequence
 from datetime import date, timedelta
 from pathlib import Path
 
 from stock_ma_tracker import __version__
+from stock_ma_tracker.application import create_tracker_service
 from stock_ma_tracker.config import (
     ConfigurationError,
     load_config,
@@ -17,17 +19,15 @@ from stock_ma_tracker.market_data import (
     MarketDataSyncService,
     YahooFinanceProvider,
 )
+from stock_ma_tracker.tracker.service import TrackerError
 
 DEFAULT_CONFIG_PATH = Path("config/strategy.yaml")
 DEFAULT_INITIAL_HISTORY_DAYS = 730
 
 
 def build_parser() -> argparse.ArgumentParser:
-    """Build the command-line argument parser."""
-
     parser = argparse.ArgumentParser(
         prog="stock-ma-tracker",
-        description="Track stock market moving-average signals.",
     )
 
     parser.add_argument(
@@ -53,19 +53,19 @@ def build_parser() -> argparse.ArgumentParser:
         help="Validate the application configuration.",
     )
 
-    sync_parser = subparsers.add_parser(
+    sync_data_parser = subparsers.add_parser(
         "sync-data",
-        help="Synchronize historical market data.",
+        help="Download and store market data.",
     )
 
-    sync_parser.add_argument(
+    sync_data_parser.add_argument(
         "--end-date",
         type=date.fromisoformat,
         default=None,
         help="Synchronization end date in YYYY-MM-DD format.",
     )
 
-    sync_parser.add_argument(
+    sync_data_parser.add_argument(
         "--initial-start-date",
         type=date.fromisoformat,
         default=None,
@@ -74,10 +74,19 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
 
+    track_parser = subparsers.add_parser(
+        "track",
+        help="Track a symbol against its configured moving average.",
+    )
+    track_parser.add_argument(
+        "symbol",
+        help="Ticker symbol to track, for example QQQ.",
+    )
+
     return parser
 
 
-def handle_validate_config(config_path: Path) -> int:
+def _handle_validate_config(config_path: Path) -> int:
     """Validate and report configuration status."""
 
     load_config(config_path)
@@ -86,7 +95,7 @@ def handle_validate_config(config_path: Path) -> int:
     return 0
 
 
-def handle_sync_data(
+def _handle_sync_data(
     *,
     config,
     end_date: date | None,
@@ -146,25 +155,54 @@ def print_sync_result(result) -> None:
     print(f"Latest trading date:  {latest_date}")
 
 
-def main(argv: Sequence[str] | None = None) -> int:
+def _handle_track(
+    args: argparse.Namespace,
+) -> int:
+    try:
+        config = load_config(str(args.config))
+        tracker = create_tracker_service(config)
+        result = tracker.track(args.symbol)
+    except (ConfigurationError, TrackerError) as error:
+        print(
+            f"Error: {error}",
+            file=sys.stderr,
+        )
+        return 1
+
+    print(f"Symbol: {result.symbol}")
+    print(f"Date: {result.date.isoformat()}")
+    print(f"Close: {result.close:.2f}")
+    print(f"SMA{result.window}: {result.moving_average:.2f}")
+    print(f"Position: {result.position.value}")
+    print(f"Cross signal: {result.cross_signal.value}")
+    print(f"Distance: {result.distance_percentage:+.2f}%")
+
+    return 0
+
+
+def main(
+    argv: Sequence[str] | None = None,
+) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+
+    if args.command == "track":
+        return _handle_track(args)
 
     try:
         config = load_config(args.config)
 
-        command_handlers = {
-            "validate-config": lambda: handle_validate_config(args.config),
-            "sync-data": lambda: handle_sync_data(
+        if args.command == "validate-config":
+            return _handle_validate_config(args.config)
+
+        if args.command == "sync-data":
+            return _handle_sync_data(
                 config=config,
                 end_date=args.end_date,
                 initial_start_date=args.initial_start_date,
-            ),
-        }
+            )
+    except (ConfigurationError, OSError, ValueError) as error:
+        parser.error(str(error))
 
-        return command_handlers[args.command]()
-
-    except (ConfigurationError, OSError, ValueError) as exc:
-        parser.error(str(exc))
-
-    return 1
+    parser.print_help()
+    return 0
