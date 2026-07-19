@@ -1,20 +1,20 @@
 from __future__ import annotations
 
 import math
-from enum import Enum
+from enum import StrEnum
 
 
 class InvalidSignalInputError(ValueError):
     """Raised when signal input values are not valid."""
 
 
-class PricePosition(str, Enum):
+class PricePosition(StrEnum):
     ABOVE = "above"
     BELOW = "below"
     EQUAL = "equal"
 
 
-class CrossSignal(str, Enum):
+class CrossSignal(StrEnum):
     CROSS_UP = "cross_up"
     CROSS_DOWN = "cross_down"
     NONE = "none"
