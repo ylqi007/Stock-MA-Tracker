@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -11,6 +12,7 @@ from stock_ma_tracker.application.tracker_analyzer import TrackerMarketAnalyzer
 from stock_ma_tracker.config.models import AppConfig
 from stock_ma_tracker.market_data import CsvMarketDataRepository
 from stock_ma_tracker.market_data.yahoo import YahooFinanceProvider
+from stock_ma_tracker.notification import TelegramNotifier
 from stock_ma_tracker.state import JsonStrategyStateRepository
 from stock_ma_tracker.strategy import StrategyState
 from stock_ma_tracker.tracker.service import (
@@ -115,4 +117,22 @@ def create_strategy_runner(
         risk_on_multiplier=config.strategy.risk_on_multiplier,
         risk_off_multiplier=config.strategy.risk_off_multiplier,
         initial_state=StrategyState(config.strategy.initial_state),
+    )
+
+
+def create_telegram_notifier() -> TelegramNotifier:
+    """Create a Telegram notifier from environment variables."""
+
+    bot_token = os.getenv("TELEGRAM_BOT_TOKEN", "")
+    chat_id = os.getenv("TELEGRAM_CHAT_ID", "")
+
+    if not bot_token.strip():
+        raise ValueError("TELEGRAM_BOT_TOKEN environment variable is required")
+
+    if not chat_id.strip():
+        raise ValueError("TELEGRAM_CHAT_ID environment variable is required")
+
+    return TelegramNotifier(
+        bot_token=bot_token,
+        chat_id=chat_id,
     )

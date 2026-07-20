@@ -13,6 +13,7 @@ from stock_ma_tracker.analysis import MovingAverageAnalysis
 from stock_ma_tracker.application import (
     StrategyRunResult,
     create_strategy_runner,
+    create_telegram_notifier,
     create_tracker_service,
 )
 from stock_ma_tracker.config import (
@@ -23,6 +24,10 @@ from stock_ma_tracker.market_data import (
     CsvMarketDataRepository,
     MarketDataSyncService,
     YahooFinanceProvider,
+)
+from stock_ma_tracker.notification import (
+    NotificationError,
+    format_strategy_notification,
 )
 from stock_ma_tracker.state import StateRepositoryError
 from stock_ma_tracker.tracker.service import TrackerError
@@ -194,11 +199,37 @@ def _handle_track(
 def _handle_run(
     args: argparse.Namespace,
 ) -> int:
+    """Run the strategy and send a notification when state changes."""
+
     try:
         config = load_config(args.config)
         runner = create_strategy_runner(config)
-        result = runner.run(config.market_data.signal_symbol)
-    except (ConfigurationError, StateRepositoryError, TrackerError) as error:
+
+        result = runner.run(
+            config.market_data.signal_symbol,
+        )
+
+        notification_sent = False
+
+        if result.notification_required:
+            notifier = create_telegram_notifier()
+
+            message = format_strategy_notification(
+                result,
+                moving_average_window=config.strategy.sma_window,
+            )
+
+            notifier.send(message)
+            notification_sent = True
+
+    except (
+        ConfigurationError,
+        TrackerError,
+        StateRepositoryError,
+        NotificationError,
+        OSError,
+        ValueError,
+    ) as error:
         print(
             f"Error: {error}",
             file=sys.stderr,
@@ -209,6 +240,8 @@ def _handle_run(
         result=result,
         moving_average_window=config.strategy.sma_window,
     )
+
+    print(f"Notification sent: {'yes' if notification_sent else 'no'}")
 
     return 0
 

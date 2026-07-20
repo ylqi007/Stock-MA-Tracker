@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from stock_ma_tracker.application import StrategyRunResult
+from stock_ma_tracker.application.strategy_runner import (
+    StrategyRunResult,
+)
 
 
 def format_strategy_notification(

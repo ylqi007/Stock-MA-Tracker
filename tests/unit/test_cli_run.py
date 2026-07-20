@@ -12,6 +12,7 @@ import pytest
 from stock_ma_tracker.application import StrategyRunResult
 from stock_ma_tracker.cli import main
 from stock_ma_tracker.config import ConfigurationError
+from stock_ma_tracker.notification import NotificationError
 from stock_ma_tracker.strategy import (
     BufferedStrategyResult,
     StrategyState,
@@ -36,6 +37,16 @@ class FailingStrategyRunner:
 
     def run(self, symbol: str) -> StrategyRunResult:
         raise TrackerError(f"no market data returned for {symbol}")
+
+
+class FakeNotifier:
+    """Fake notifier used by CLI unit tests."""
+
+    def __init__(self) -> None:
+        self.messages: list[str] = []
+
+    def send(self, message: str) -> None:
+        self.messages.append(message)
 
 
 @pytest.fixture
@@ -77,6 +88,7 @@ def test_run_command_executes_buffered_strategy(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     runner = FakeStrategyRunner(risk_on_result)
+    notifier = FakeNotifier()
 
     monkeypatch.setattr(
         "stock_ma_tracker.cli.load_config",
@@ -85,6 +97,10 @@ def test_run_command_executes_buffered_strategy(
     monkeypatch.setattr(
         "stock_ma_tracker.cli.create_strategy_runner",
         lambda config: runner,
+    )
+    monkeypatch.setattr(
+        "stock_ma_tracker.cli.create_telegram_notifier",
+        lambda: notifier,
     )
 
     exit_code = main(["run"])
@@ -107,6 +123,12 @@ def test_run_command_executes_buffered_strategy(
     assert "Notification required: yes" in captured.out
 
     assert captured.err == ""
+    assert len(notifier.messages) == 1
+
+    assert "Stock MA Tracker" in notifier.messages[0]
+    assert "Symbol: QQQ" in notifier.messages[0]
+    assert "Current state: RISK_ON" in notifier.messages[0]
+    assert "Notification sent: yes" in captured.out
 
 
 def test_run_command_uses_configured_signal_symbol(
@@ -309,3 +331,37 @@ def test_run_command_returns_error_when_strategy_runner_fails(
     assert exit_code == 1
     assert captured.out == ""
     assert captured.err == "Error: no market data returned for QQQ\n"
+
+
+def test_run_command_returns_error_when_notification_fails(
+    run_config: SimpleNamespace,
+    risk_on_result: StrategyRunResult,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    class FailingNotifier:
+        def send(self, message: str) -> None:
+            raise NotificationError("failed to send Telegram notification")
+
+    runner = FakeStrategyRunner(risk_on_result)
+
+    monkeypatch.setattr(
+        "stock_ma_tracker.cli.load_config",
+        lambda config_path: run_config,
+    )
+    monkeypatch.setattr(
+        "stock_ma_tracker.cli.create_strategy_runner",
+        lambda config: runner,
+    )
+    monkeypatch.setattr(
+        "stock_ma_tracker.cli.create_telegram_notifier",
+        lambda: FailingNotifier(),
+    )
+
+    exit_code = main(["run"])
+
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert captured.out == ""
+    assert captured.err == ("Error: failed to send Telegram notification\n")
