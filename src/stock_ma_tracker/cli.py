@@ -10,7 +10,11 @@ from pathlib import Path
 
 from stock_ma_tracker import __version__
 from stock_ma_tracker.analysis import MovingAverageAnalysis
-from stock_ma_tracker.application import create_tracker_service
+from stock_ma_tracker.application import (
+    StrategyRunResult,
+    create_strategy_runner,
+    create_tracker_service,
+)
 from stock_ma_tracker.config import (
     ConfigurationError,
     load_config,
@@ -20,6 +24,7 @@ from stock_ma_tracker.market_data import (
     MarketDataSyncService,
     YahooFinanceProvider,
 )
+from stock_ma_tracker.state import StateRepositoryError
 from stock_ma_tracker.tracker.service import TrackerError
 
 DEFAULT_CONFIG_PATH = Path("config/strategy.yaml")
@@ -86,7 +91,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     subparsers.add_parser(
         "run",
-        help="Track the configured signal symbol.",
+        help=("Run the buffered strategy for the configured signal symbol."),
     )
 
     return parser
@@ -191,25 +196,43 @@ def _handle_run(
 ) -> int:
     try:
         config = load_config(args.config)
-        tracker = create_tracker_service(config)
-
-        results = tracker.track_many(
-            [config.market_data.signal_symbol],
-        )
-    except (ConfigurationError, TrackerError) as error:
+        runner = create_strategy_runner(config)
+        result = runner.run(config.market_data.signal_symbol)
+    except (ConfigurationError, StateRepositoryError, TrackerError) as error:
         print(
             f"Error: {error}",
             file=sys.stderr,
         )
         return 1
 
-    for index, result in enumerate(results):
-        if index > 0:
-            print()
-
-        _print_analysis(result)
+    _print_strategy_run_result(
+        result=result,
+        moving_average_window=config.strategy.sma_window,
+    )
 
     return 0
+
+
+def _print_strategy_run_result(
+    *,
+    result: StrategyRunResult,
+    moving_average_window: int,
+) -> None:
+    """Print one buffered strategy run result."""
+
+    strategy = result.strategy
+
+    print("Buffered strategy run completed")
+    print(f"Symbol: {result.symbol}")
+    print(f"Date: {result.trading_date.isoformat()}")
+    print(f"Close: {strategy.price:.2f}")
+    print(f"SMA{moving_average_window}: {strategy.moving_average:.2f}")
+    print(f"Upper threshold: {strategy.upper_threshold:.2f}")
+    print(f"Lower threshold: {strategy.lower_threshold:.2f}")
+    print(f"Previous state: {strategy.previous_state.value}")
+    print(f"Current state: {strategy.current_state.value}")
+    print(f"State changed: {'yes' if strategy.state_changed else 'no'}")
+    print(f"Notification required: {'yes' if result.notification_required else 'no'}")
 
 
 def _print_analysis(

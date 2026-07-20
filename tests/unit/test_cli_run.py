@@ -1,130 +1,90 @@
+"""Unit tests for the CLI run command."""
+
 from __future__ import annotations
 
-from dataclasses import dataclass
 from datetime import date
+from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
 
+from stock_ma_tracker.application import StrategyRunResult
 from stock_ma_tracker.cli import main
-from stock_ma_tracker.config import (
-    AppConfig,
-    ConfigurationError,
-    MarketDataConfig,
-    NotificationConfig,
-    ProjectConfig,
-    StorageConfig,
-    StrategyConfig,
+from stock_ma_tracker.config import ConfigurationError
+from stock_ma_tracker.strategy import (
+    BufferedStrategyResult,
+    StrategyState,
 )
-from stock_ma_tracker.strategy.signals import CrossSignal, PricePosition
-from stock_ma_tracker.tracker.service import TrackerError
+from stock_ma_tracker.tracker import TrackerError
 
 
-@dataclass(frozen=True)
-class FakeMovingAverageAnalysis:
-    symbol: str
-    date: date
-    close: float
-    moving_average: float
-    window: int
-    position: PricePosition
-    cross_signal: CrossSignal
-    distance_percentage: float
+class FakeStrategyRunner:
+    """Fake strategy runner used by CLI unit tests."""
+
+    def __init__(self, result: StrategyRunResult) -> None:
+        self._result = result
+        self.received_symbol: str | None = None
+
+    def run(self, symbol: str) -> StrategyRunResult:
+        self.received_symbol = symbol
+        return self._result
 
 
-class FakeTrackerService:
-    def __init__(
-        self,
-        results: list[FakeMovingAverageAnalysis],
-    ) -> None:
-        self._results = results
-        self.tracked_symbols: list[str] | None = None
+class FailingStrategyRunner:
+    """Strategy runner that always raises a TrackerError."""
 
-    def track_many(
-        self,
-        symbols: list[str],
-    ) -> list[FakeMovingAverageAnalysis]:
-        self.tracked_symbols = symbols
-        return self._results
-
-
-class FailingTrackerService:
-    def track_many(
-        self,
-        symbols: list[str],
-    ) -> list[FakeMovingAverageAnalysis]:
-        raise TrackerError(f"no market data returned for {symbols[0].upper()}")
+    def run(self, symbol: str) -> StrategyRunResult:
+        raise TrackerError(f"no market data returned for {symbol}")
 
 
 @pytest.fixture
-def run_config() -> AppConfig:
-    return AppConfig(
-        project=ProjectConfig(
-            name="stock-ma-tracker",
-            version="0.1.0",
-        ),
-        market_data=MarketDataConfig(
-            provider="yahoo",
+def run_config() -> SimpleNamespace:
+    """Return the minimum configuration required by the run command."""
+
+    return SimpleNamespace(
+        market_data=SimpleNamespace(
             signal_symbol="QQQ",
-            trade_symbol="TQQQ",
-            interval="1d",
-            auto_adjust=True,
-            overlap_calendar_days=7,
-            max_stored_rows=400,
         ),
-        strategy=StrategyConfig(
-            name="sma_buffer",
-            version=1,
+        strategy=SimpleNamespace(
             sma_window=200,
-            risk_on_multiplier=1.04,
-            risk_off_multiplier=0.97,
-            threshold_inclusive=True,
-            neutral_behavior="keep_previous",
-            initial_state="UNKNOWN",
-        ),
-        notification=NotificationConfig(
-            provider="telegram",
-            mode="signal_only",
-            include_chart=True,
-        ),
-        storage=StorageConfig(
-            data_directory="data",
-            state_directory="state",
-            history_directory="history",
-            chart_directory="charts",
         ),
     )
 
 
 @pytest.fixture
-def analysis_result() -> FakeMovingAverageAnalysis:
-    return FakeMovingAverageAnalysis(
+def risk_on_result() -> StrategyRunResult:
+    """Return a strategy result representing a RISK_OFF to RISK_ON change."""
+
+    return StrategyRunResult(
         symbol="QQQ",
-        date=date(2026, 7, 17),
-        close=610.25,
-        moving_average=584.42,
-        window=200,
-        position=PricePosition.ABOVE,
-        cross_signal=CrossSignal.NONE,
-        distance_percentage=4.419424,
+        trading_date=date(2026, 7, 17),
+        strategy=BufferedStrategyResult(
+            previous_state=StrategyState.RISK_OFF,
+            current_state=StrategyState.RISK_ON,
+            price=610.25,
+            moving_average=584.42,
+            upper_threshold=607.80,
+            lower_threshold=566.89,
+        ),
     )
 
 
-def test_run_command_tracks_configured_signal_symbol_and_prints_analysis(
-    analysis_result: FakeMovingAverageAnalysis,
-    run_config: AppConfig,
+def test_run_command_executes_buffered_strategy(
+    run_config: SimpleNamespace,
+    risk_on_result: StrategyRunResult,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    tracker = FakeTrackerService([analysis_result])
+    runner = FakeStrategyRunner(risk_on_result)
 
     monkeypatch.setattr(
         "stock_ma_tracker.cli.load_config",
         lambda config_path: run_config,
     )
     monkeypatch.setattr(
-        "stock_ma_tracker.cli.create_tracker_service",
-        lambda config: tracker,
+        "stock_ma_tracker.cli.create_strategy_runner",
+        lambda config: runner,
     )
 
     exit_code = main(["run"])
@@ -132,50 +92,204 @@ def test_run_command_tracks_configured_signal_symbol_and_prints_analysis(
     captured = capsys.readouterr()
 
     assert exit_code == 0
-    assert tracker.tracked_symbols == ["QQQ"]
+    assert runner.received_symbol == "QQQ"
+
+    assert "Buffered strategy run completed" in captured.out
+    assert "Symbol: QQQ" in captured.out
+    assert "Date: 2026-07-17" in captured.out
+    assert "Close: 610.25" in captured.out
+    assert "SMA200: 584.42" in captured.out
+    assert "Upper threshold: 607.80" in captured.out
+    assert "Lower threshold: 566.89" in captured.out
+    assert "Previous state: RISK_OFF" in captured.out
+    assert "Current state: RISK_ON" in captured.out
+    assert "State changed: yes" in captured.out
+    assert "Notification required: yes" in captured.out
+
     assert captured.err == ""
-    assert captured.out == (
-        "Symbol: QQQ\n"
-        "Date: 2026-07-17\n"
-        "Close: 610.25\n"
-        "SMA200: 584.42\n"
-        "Position: above\n"
-        "Cross signal: none\n"
-        "Distance: +4.42%\n"
+
+
+def test_run_command_uses_configured_signal_symbol(
+    run_config: SimpleNamespace,
+    risk_on_result: StrategyRunResult,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    run_config.market_data.signal_symbol = "VOO"
+    runner = FakeStrategyRunner(risk_on_result)
+
+    monkeypatch.setattr(
+        "stock_ma_tracker.cli.load_config",
+        lambda config_path: run_config,
+    )
+    monkeypatch.setattr(
+        "stock_ma_tracker.cli.create_strategy_runner",
+        lambda config: runner,
     )
 
+    exit_code = main(["run"])
 
-def test_run_command_passes_config_to_factory(
-    analysis_result: FakeMovingAverageAnalysis,
-    run_config: AppConfig,
+    assert exit_code == 0
+    assert runner.received_symbol == "VOO"
+
+
+def test_run_command_passes_config_to_strategy_runner_factory(
+    run_config: SimpleNamespace,
+    risk_on_result: StrategyRunResult,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     captured_arguments: dict[str, Any] = {}
-    tracker = FakeTrackerService([analysis_result])
+    runner = FakeStrategyRunner(risk_on_result)
 
-    def fake_load_config(config_path: object) -> AppConfig:
+    def fake_load_config(
+        config_path: Path,
+    ) -> SimpleNamespace:
         captured_arguments["config_path"] = config_path
         return run_config
 
-    def fake_create_tracker_service(config: AppConfig) -> FakeTrackerService:
+    def fake_create_strategy_runner(
+        config: object,
+    ) -> FakeStrategyRunner:
         captured_arguments["config"] = config
-        return tracker
+        return runner
 
-    monkeypatch.setattr("stock_ma_tracker.cli.load_config", fake_load_config)
     monkeypatch.setattr(
-        "stock_ma_tracker.cli.create_tracker_service",
-        fake_create_tracker_service,
+        "stock_ma_tracker.cli.load_config",
+        fake_load_config,
+    )
+    monkeypatch.setattr(
+        "stock_ma_tracker.cli.create_strategy_runner",
+        fake_create_strategy_runner,
     )
 
-    exit_code = main(["--config", "configs/test.yaml", "run"])
+    exit_code = main(
+        [
+            "--config",
+            "configs/test.yaml",
+            "run",
+        ]
+    )
 
     assert exit_code == 0
-    assert str(captured_arguments["config_path"]) == "configs/test.yaml"
+    assert captured_arguments["config_path"] == Path("configs/test.yaml")
     assert captured_arguments["config"] is run_config
+    assert runner.received_symbol == "QQQ"
 
 
-def test_run_command_returns_error_when_tracking_fails(
-    run_config: AppConfig,
+def test_run_command_reports_unchanged_state(
+    run_config: SimpleNamespace,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    result = StrategyRunResult(
+        symbol="QQQ",
+        trading_date=date(2026, 7, 17),
+        strategy=BufferedStrategyResult(
+            previous_state=StrategyState.RISK_ON,
+            current_state=StrategyState.RISK_ON,
+            price=600.00,
+            moving_average=584.42,
+            upper_threshold=607.80,
+            lower_threshold=566.89,
+        ),
+    )
+
+    runner = FakeStrategyRunner(result)
+
+    monkeypatch.setattr(
+        "stock_ma_tracker.cli.load_config",
+        lambda config_path: run_config,
+    )
+    monkeypatch.setattr(
+        "stock_ma_tracker.cli.create_strategy_runner",
+        lambda config: runner,
+    )
+
+    exit_code = main(["run"])
+
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert runner.received_symbol == "QQQ"
+
+    assert "Previous state: RISK_ON" in captured.out
+    assert "Current state: RISK_ON" in captured.out
+    assert "State changed: no" in captured.out
+    assert "Notification required: no" in captured.out
+
+    assert captured.err == ""
+
+
+def test_run_command_reports_unknown_state_inside_buffer(
+    run_config: SimpleNamespace,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    result = StrategyRunResult(
+        symbol="QQQ",
+        trading_date=date(2026, 7, 17),
+        strategy=BufferedStrategyResult(
+            previous_state=StrategyState.UNKNOWN,
+            current_state=StrategyState.UNKNOWN,
+            price=584.42,
+            moving_average=584.42,
+            upper_threshold=607.80,
+            lower_threshold=566.89,
+        ),
+    )
+
+    runner = FakeStrategyRunner(result)
+
+    monkeypatch.setattr(
+        "stock_ma_tracker.cli.load_config",
+        lambda config_path: run_config,
+    )
+    monkeypatch.setattr(
+        "stock_ma_tracker.cli.create_strategy_runner",
+        lambda config: runner,
+    )
+
+    exit_code = main(["run"])
+
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "Previous state: UNKNOWN" in captured.out
+    assert "Current state: UNKNOWN" in captured.out
+    assert "State changed: no" in captured.out
+    assert "Notification required: no" in captured.out
+
+    assert captured.err == ""
+
+
+def test_run_command_returns_error_when_config_loading_fails(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    def fake_load_config(config_path: Path) -> object:
+        raise ConfigurationError(f"configuration file not found: {config_path}")
+
+    monkeypatch.setattr(
+        "stock_ma_tracker.cli.load_config",
+        fake_load_config,
+    )
+
+    exit_code = main(
+        [
+            "--config",
+            "configs/missing.yaml",
+            "run",
+        ]
+    )
+
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert captured.out == ""
+    assert "Error: configuration file not found: configs/missing.yaml\n" == captured.err
+
+
+def test_run_command_returns_error_when_strategy_runner_fails(
+    run_config: SimpleNamespace,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -184,8 +298,8 @@ def test_run_command_returns_error_when_tracking_fails(
         lambda config_path: run_config,
     )
     monkeypatch.setattr(
-        "stock_ma_tracker.cli.create_tracker_service",
-        lambda config: FailingTrackerService(),
+        "stock_ma_tracker.cli.create_strategy_runner",
+        lambda config: FailingStrategyRunner(),
     )
 
     exit_code = main(["run"])
@@ -195,21 +309,3 @@ def test_run_command_returns_error_when_tracking_fails(
     assert exit_code == 1
     assert captured.out == ""
     assert captured.err == "Error: no market data returned for QQQ\n"
-
-
-def test_run_command_returns_error_when_config_loading_fails(
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    def fake_load_config(config_path: object) -> AppConfig:
-        raise ConfigurationError(f"configuration file not found: {config_path}")
-
-    monkeypatch.setattr("stock_ma_tracker.cli.load_config", fake_load_config)
-
-    exit_code = main(["--config", "missing.yaml", "run"])
-
-    captured = capsys.readouterr()
-
-    assert exit_code == 1
-    assert captured.out == ""
-    assert captured.err == "Error: configuration file not found: missing.yaml\n"
