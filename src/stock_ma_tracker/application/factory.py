@@ -1,11 +1,18 @@
 from __future__ import annotations
 
 from datetime import date, timedelta
+from pathlib import Path
 
 import pandas as pd
 
+from stock_ma_tracker.application.stored_history import StoredHistoryProvider
+from stock_ma_tracker.application.strategy_runner import StrategyRunner
+from stock_ma_tracker.application.tracker_analyzer import TrackerMarketAnalyzer
 from stock_ma_tracker.config.models import AppConfig
+from stock_ma_tracker.market_data import CsvMarketDataRepository
 from stock_ma_tracker.market_data.yahoo import YahooFinanceProvider
+from stock_ma_tracker.state import JsonStrategyStateRepository
+from stock_ma_tracker.strategy import StrategyState
 from stock_ma_tracker.tracker.service import (
     MarketDataProvider,
     TrackerService,
@@ -79,3 +86,33 @@ def _parse_history_period(period: str) -> timedelta:
         return timedelta(days=int(normalized_period[:-2]) * 30)
 
     raise ValueError(f"Unsupported history period: {period}")
+
+
+def create_strategy_runner(
+    config: AppConfig,
+) -> StrategyRunner:
+    """Create the complete locally persisted strategy workflow."""
+
+    market_data_repository = CsvMarketDataRepository(Path(config.storage.data_directory))
+
+    history_provider = StoredHistoryProvider(market_data_repository)
+
+    tracker = TrackerService(
+        market_data_provider=history_provider,
+        settings=TrackerSettings(
+            moving_average_window=config.strategy.sma_window,
+            history_period=f"{config.market_data.max_stored_rows}d",
+        ),
+    )
+
+    analyzer = TrackerMarketAnalyzer(tracker)
+
+    state_repository = JsonStrategyStateRepository(Path(config.storage.state_directory))
+
+    return StrategyRunner(
+        analyzer=analyzer,
+        state_repository=state_repository,
+        risk_on_multiplier=config.strategy.risk_on_multiplier,
+        risk_off_multiplier=config.strategy.risk_off_multiplier,
+        initial_state=StrategyState(config.strategy.initial_state),
+    )
