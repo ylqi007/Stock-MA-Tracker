@@ -103,7 +103,14 @@ class MarketDataSyncService:
         stored_bars: list[PriceBar],
         initial_start_date: date,
     ) -> date:
-        if not stored_bars:
+        """Determine where the next market-data request should begin.
+
+        A missing or incomplete local history triggers a historical backfill.
+        Once the repository contains the configured maximum number of rows,
+        synchronization uses only the configured overlap period.
+        """
+
+        if len(stored_bars) < self._max_stored_rows:
             return initial_start_date
 
         latest_stored_date = max(bar.trading_date for bar in stored_bars)

@@ -91,7 +91,7 @@ def test_initial_sync_uses_initial_start_date():
     assert repository.saved_symbol == "QQQ"
 
 
-def test_incremental_sync_uses_overlap():
+def test_complete_history_uses_overlap():
     repository = InMemoryMarketDataRepository(
         [
             make_bar(2026, 7, 8, 548.0),
@@ -104,7 +104,7 @@ def test_incremental_sync_uses_overlap():
         provider=provider,
         repository=repository,
         overlap_calendar_days=7,
-        max_stored_rows=400,
+        max_stored_rows=2,
     )
 
     service.sync(
@@ -202,3 +202,34 @@ def test_sync_returns_latest_trading_date():
     )
 
     assert result.latest_trading_date == date(2026, 7, 17)
+
+
+def test_incomplete_history_uses_initial_start_date():
+    repository = InMemoryMarketDataRepository(
+        [
+            make_bar(2026, 7, 8, 548.0),
+            make_bar(2026, 7, 10, 550.0),
+        ]
+    )
+    provider = FakeMarketDataProvider([])
+
+    service = MarketDataSyncService(
+        provider=provider,
+        repository=repository,
+        overlap_calendar_days=7,
+        max_stored_rows=400,
+    )
+
+    service.sync(
+        symbol="QQQ",
+        initial_start_date=date(2024, 7, 18),
+        end_date=date(2026, 7, 18),
+    )
+
+    assert provider.requests == [
+        (
+            "QQQ",
+            date(2024, 7, 18),
+            date(2026, 7, 18),
+        )
+    ]
