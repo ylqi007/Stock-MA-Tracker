@@ -60,6 +60,9 @@ def run_config() -> SimpleNamespace:
         strategy=SimpleNamespace(
             sma_window=200,
         ),
+        notification=SimpleNamespace(
+            mode="signal_only",
+        ),
     )
 
 
@@ -147,6 +150,10 @@ def test_run_command_uses_configured_signal_symbol(
         "stock_ma_tracker.cli.create_strategy_runner",
         lambda config: runner,
     )
+    monkeypatch.setattr(
+        "stock_ma_tracker.cli.create_telegram_notifier",
+        FakeNotifier,
+    )
 
     exit_code = main(["run"])
 
@@ -181,6 +188,10 @@ def test_run_command_passes_config_to_strategy_runner_factory(
     monkeypatch.setattr(
         "stock_ma_tracker.cli.create_strategy_runner",
         fake_create_strategy_runner,
+    )
+    monkeypatch.setattr(
+        "stock_ma_tracker.cli.create_telegram_notifier",
+        FakeNotifier,
     )
 
     exit_code = main(
@@ -239,6 +250,52 @@ def test_run_command_reports_unchanged_state(
     assert "Notification required: no" in captured.out
 
     assert captured.err == ""
+
+
+def test_run_command_sends_status_notification_when_signal_and_status_mode(
+    run_config: SimpleNamespace,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    run_config.notification.mode = "signal_and_status"
+    result = StrategyRunResult(
+        symbol="QQQ",
+        trading_date=date(2026, 7, 17),
+        strategy=BufferedStrategyResult(
+            previous_state=StrategyState.RISK_ON,
+            current_state=StrategyState.RISK_ON,
+            price=600.00,
+            moving_average=584.42,
+            upper_threshold=607.80,
+            lower_threshold=566.89,
+        ),
+    )
+
+    runner = FakeStrategyRunner(result)
+    notifier = FakeNotifier()
+
+    monkeypatch.setattr(
+        "stock_ma_tracker.cli.load_config",
+        lambda config_path: run_config,
+    )
+    monkeypatch.setattr(
+        "stock_ma_tracker.cli.create_strategy_runner",
+        lambda config: runner,
+    )
+    monkeypatch.setattr(
+        "stock_ma_tracker.cli.create_telegram_notifier",
+        lambda: notifier,
+    )
+
+    exit_code = main(["run"])
+
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "Notification required: no" in captured.out
+    assert "Notification sent: yes" in captured.out
+    assert len(notifier.messages) == 1
+    assert "Daily check: no risk signal change." in notifier.messages[0]
 
 
 def test_run_command_reports_unknown_state_inside_buffer(

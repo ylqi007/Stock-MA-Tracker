@@ -39,6 +39,9 @@ def validate_config(config: AppConfig) -> None:
 
     if config.notification.mode not in {
         "signal_only",
+        "signal_and_status",
         "daily_summary",
     }:
-        raise ConfigurationError("notification mode must be signal_only or daily_summary.")
+        raise ConfigurationError(
+            "notification mode must be signal_only, signal_and_status, or daily_summary."
+        )

@@ -2,6 +2,7 @@
 
 from stock_ma_tracker.notification.formatter import (
     format_strategy_notification,
+    should_send_strategy_notification,
 )
 from stock_ma_tracker.notification.notifier import Notifier
 from stock_ma_tracker.notification.telegram import (
@@ -14,4 +15,5 @@ __all__ = [
     "Notifier",
     "TelegramNotifier",
     "format_strategy_notification",
+    "should_send_strategy_notification",
 ]

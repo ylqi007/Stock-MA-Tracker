@@ -28,6 +28,7 @@ from stock_ma_tracker.market_data import (
 from stock_ma_tracker.notification import (
     NotificationError,
     format_strategy_notification,
+    should_send_strategy_notification,
 )
 from stock_ma_tracker.state import StateRepositoryError
 from stock_ma_tracker.tracker.service import TrackerError
@@ -37,16 +38,22 @@ DEFAULT_INITIAL_HISTORY_DAYS = 730
 
 
 def build_parser() -> argparse.ArgumentParser:
+    # ArgumentParser 是 Python 标准库 argparse 里的一个类，用来创建命令行参数解析器。
+    # 简单说：ArgumentParser 负责理解用户在终端里输入的命令。
+    # 这里定义命令行程序名字和说明
     parser = argparse.ArgumentParser(
         prog="stock-ma-tracker",
+        description="Stock moving-average strategy tracker",
     )
 
+    # 它通常不是为了让 caller “设置版本”，而是为了让 caller 查询当前程序版本。
     parser.add_argument(
         "--version",
         action="version",
-        version=f"%(prog)s {__version__}",
+        version=f"%(prog)s {__version__}",  # %(prog)s 会自动替换成程序名，也就是 stock-ma-tracker。
     )
 
+    # --config 是“输入配置给程序使用”，它是 caller 传入一个值，让程序改变行为，比如使用哪个配置文件。
     parser.add_argument(
         "--config",
         type=Path,
@@ -211,7 +218,7 @@ def _handle_run(
 
         notification_sent = False
 
-        if result.notification_required:
+        if should_send_strategy_notification(config.notification.mode, result):
             notifier = create_telegram_notifier()
 
             message = format_strategy_notification(

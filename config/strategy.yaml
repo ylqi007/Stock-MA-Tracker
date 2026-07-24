@@ -23,7 +23,7 @@ strategy:
 
 notification:
   provider: telegram
-  mode: signal_only
+  mode: signal_and_status
   include_chart: true
 
 storage:

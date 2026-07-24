@@ -6,9 +6,13 @@ import pytest
 from stock_ma_tracker.cli import build_parser, main
 
 
+# 验证: 是否会正确打印版本号，并且正常退出。
 def test_version(monkeypatch, capsys):
     monkeypatch.setattr("sys.argv", ["stock-ma-tracker", "--version"])
 
+    # 我预期 main() 会触发 SystemExit。
+    # 如果确实触发了，测试继续。
+    # 如果没有触发，测试失败。
     with pytest.raises(SystemExit) as exc:
         main()
 
